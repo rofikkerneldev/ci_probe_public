@@ -166,3 +166,40 @@ jobs:
           gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
             Resources/DeviceOverlays/timelm/Drivers/KonaSPMI/tests/transaction_test.c -o /tmp/spmi-transaction-test
           /tmp/spmi-transaction-test
+      - name: Compile the pin-registry DSDT from the ASL source
+        working-directory: source
+        run: |
+          set -eu
+          sudo apt-get install -y -qq acpica-tools
+          mkdir -p Build/TouchGpio
+          iasl -ve -p Build/TouchGpio/DSDT Resources/DeviceOverlays/timelm/ACPI/DSDT.asl
+          # Runner-local sync: the trial generator still reads the committed AML,
+          # so the freshly compiled registry DSDT replaces it here and its hash is
+          # stamped into the manifest before the one-shot image is generated. The
+          # committed AML itself follows in a separate source commit.
+          cp Build/TouchGpio/DSDT.aml Resources/DeviceOverlays/timelm/ACPI/DSDT.aml
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          overlay = Path('Resources/DeviceOverlays/timelm')
+          digest = hashlib.sha256((overlay / 'ACPI/DSDT.aml').read_bytes()).hexdigest()
+          manifest = json.loads((overlay / 'SHA256.json').read_text())
+          manifest['ACPI/DSDT.aml'] = digest
+          (overlay / 'SHA256.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+      - name: Build the one-boot GPIO trial image
+        working-directory: source
+        run: |
+          set -eu
+          sudo apt-get install -y -qq clang lld
+          git submodule update --init --depth 1 Mu_Basecore
+          ./Resources/Scripts/build_touch_gpio_trial.sh
+      - name: Upload the GPIO trial artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timelm-TouchGpio-trial
+          path: source/Build/TouchGpio/
+          if-no-files-found: warn
+          retention-days: 14
