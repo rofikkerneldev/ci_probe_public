@@ -1,0 +1,69 @@
+name: Build timelm ARM64 driver from the private source
+# The private repository holds the source of truth. This public repository is
+# only a runner seed: it clones the private branch, builds the ARM64 driver
+# and uploads the artefact.
+#
+# Why a public seed: the private repository cannot start a job on this
+# account because the account spending limit is exhausted, and a private
+# repository also gets the smaller 2 core runner. A public repository is not
+# billed against that limit and receives the 4 core runner, so the same
+# private source is still built by the full size runner.
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: Private repository that holds the source of truth
+        required: false
+        default: rofikkerneldev/test_mu-timelm
+      source_ref:
+        description: Branch or commit to build
+        required: false
+        default: codex/timelm-sw42902-bringup
+  push:
+    paths:
+      - '.github/workflows/build-from-private.yml'
+permissions:
+  contents: read
+jobs:
+  arm64-driver:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Check out the private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository }}
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: source
+      - name: Report the built commit
+        shell: pwsh
+        working-directory: source
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -notmatch '^[0-9a-f]{40}$') { throw "The commit pin is not a full 40 character hash: $sha" }
+          "Built commit: $sha"
+          "Built commit: $sha" | Out-File -FilePath ../commit-pin.txt -Encoding ascii
+      - name: Build the ARM64 GENI I2C driver
+        shell: pwsh
+        working-directory: source
+        run: ./Resources/Scripts/build_geni_i2c.ps1
+      - name: Build the native touch host and client
+        shell: pwsh
+        working-directory: source
+        run: ./Resources/Scripts/build_sw42902_touch.ps1
+      - name: Validate the GPIO trial helpers without touching hardware
+        shell: powershell
+        working-directory: source
+        run: ./Resources/Scripts/TouchGpio/Test-TouchGpioGuards.ps1
+      - name: Upload the ARM64 driver package
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timelm-GENI-I2C-ARM64-from-private
+          path: |
+            source/GPLDrivers/Windows/KonaGeniI2c/out/
+            source/GPLDrivers/Windows/Sw42902Touch/driver/kmdf/out/
+            commit-pin.txt
+          if-no-files-found: warn
+          retention-days: 14
