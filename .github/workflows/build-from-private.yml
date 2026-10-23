@@ -91,6 +91,24 @@ jobs:
           echo "Tested commit: $sha"
           gcc --version | head -1
           python3 --version
+      - name: Decompile the bundled DSDT for pin-map review
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq acpica-tools
+          iasl -d Resources/DeviceOverlays/timelm/ACPI/DSDT.aml
+          mkdir -p dsdt-review
+          cp Resources/DeviceOverlays/timelm/ACPI/DSDT.dsl dsdt-review/DSDT.dsl
+          cp Resources/DeviceOverlays/timelm/ACPI/DSDT.aml dsdt-review/DSDT.aml
+          sha256sum dsdt-review/DSDT.aml | tee dsdt-review/sha256.txt
+      - name: Upload the DSDT review copy
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timelm-DSDT-decompiled
+          path: dsdt-review/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Run the native touch lifecycle tests
         shell: bash
         working-directory: source
