@@ -1,7 +1,7 @@
 name: Build timelm ARM64 driver from the private source
 # The private repository holds the source of truth. This public repository is
-# only a runner seed: it clones the private branch, builds the ARM64 driver
-# and uploads the artefact.
+# only a runner seed: it clones the private branch, builds the ARM64 driver,
+# runs the native touch lifecycle tests and uploads the artefacts.
 #
 # Why a public seed: the private repository cannot start a job on this
 # account because the account spending limit is exhausted, and a private
@@ -32,8 +32,8 @@ jobs:
       - name: Check out the private source
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.source_repository }}
-          ref: ${{ inputs.source_ref }}
+          repository: ${{ inputs.source_repository || 'rofikkerneldev/test_mu-timelm' }}
+          ref: ${{ inputs.source_ref || 'codex/timelm-sw42902-bringup' }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: source
       - name: Report the built commit
@@ -67,3 +67,83 @@ jobs:
             commit-pin.txt
           if-no-files-found: warn
           retention-days: 14
+  linux-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the private source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repository || 'rofikkerneldev/test_mu-timelm' }}
+          ref: ${{ inputs.source_ref || 'codex/timelm-sw42902-bringup' }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: source
+      - name: Report the tested commit
+        shell: bash
+        working-directory: source
+        run: |
+          set -eu
+          sha=$(git rev-parse HEAD)
+          case "$sha" in
+            [0-9a-f]*) [ ${#sha} -eq 40 ] || { echo "The commit pin is not a full 40 character hash: $sha"; exit 1; } ;;
+            *) echo "The commit pin is not a 40 character hash: $sha"; exit 1 ;;
+          esac
+          echo "Tested commit: $sha"
+          gcc --version | head -1
+          python3 --version
+      - name: Run the native touch lifecycle tests
+        shell: bash
+        working-directory: source
+        run: |
+          set -eux
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/KonaGeniI2c/tests/board_test.c \
+            GPLDrivers/Windows/KonaGeniI2c/touch_clock.c \
+            GPLDrivers/Windows/KonaGeniI2c/touch_board.c -o /tmp/touch-board-test
+          /tmp/touch-board-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/KonaGeniI2c/tests/fifo_test.c \
+            GPLDrivers/Windows/KonaGeniI2c/geni_fifo.c -o /tmp/touch-fifo-test
+          /tmp/touch-fifo-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/KonaGeniI2c/tests/gpi_test.c \
+            GPLDrivers/Windows/KonaGeniI2c/geni_gpi.c -o /tmp/touch-gpi-test
+          /tmp/touch-gpi-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            -IGPLDrivers/Windows/KonaGeniI2c/tests/iommu_shim \
+            GPLDrivers/Windows/KonaGeniI2c/tests/iommu_test.c \
+            GPLDrivers/Windows/KonaGeniI2c/iommu_windows.c -o /tmp/touch-iommu-test
+          /tmp/touch-iommu-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/KonaGeniI2c/tests/probe_policy_test.c -o /tmp/touch-probe-policy-test
+          /tmp/touch-probe-policy-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            -IGPLDrivers/Windows/KonaGeniI2c/tests/probe_shim \
+            GPLDrivers/Windows/KonaGeniI2c/tests/probe_windows_test.c -o /tmp/touch-probe-windows-test
+          /tmp/touch-probe-windows-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/KonaGeniI2c/tests/bitbang_test.c \
+            GPLDrivers/Windows/KonaGeniI2c/bitbang_i2c.c -o /tmp/touch-bitbang-test
+          /tmp/touch-bitbang-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            -IGPLDrivers/Windows/KonaGeniI2c/tests/bitbang_shim \
+            GPLDrivers/Windows/KonaGeniI2c/tests/bitbang_windows_test.c -o /tmp/touch-bitbang-windows-test
+          /tmp/touch-bitbang-windows-test
+          python3 Resources/DeviceOverlays/timelm/Drivers/KonaGPIO/test_touch_bus.py
+          python3 Resources/Scripts/tests/test_timelm_touch_iort.py
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/Sw42902Touch/tests/protocol_test.c -o /tmp/touch-protocol-test
+          /tmp/touch-protocol-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/Sw42902Touch/tests/init_test.c -o /tmp/touch-init-test
+          /tmp/touch-init-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            GPLDrivers/Windows/Sw42902Touch/tests/basic_test.c \
+            GPLDrivers/Windows/Sw42902Touch/driver/sw42902_basic.c -o /tmp/touch-basic-test
+          /tmp/touch-basic-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            Platforms/LG/timelmPkg/Applications/TouchDmaCheck/snapshot_test.c -o /tmp/touch-dma-check-test
+          /tmp/touch-dma-check-test
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+            Resources/DeviceOverlays/timelm/Drivers/KonaSPMI/tests/transaction_test.c -o /tmp/spmi-transaction-test
+          /tmp/spmi-transaction-test
