@@ -92,6 +92,7 @@ jobs:
           gcc --version | head -1
           python3 --version
       - name: Decompile the bundled DSDT for pin-map review
+        working-directory: source
         run: |
           set -eu
           sudo apt-get update -qq
