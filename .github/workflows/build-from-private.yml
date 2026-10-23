@@ -107,7 +107,7 @@ jobs:
         if: always()
         with:
           name: timelm-DSDT-decompiled
-          path: dsdt-review/
+          path: source/dsdt-review/
           if-no-files-found: warn
           retention-days: 14
       - name: Run the native touch lifecycle tests
